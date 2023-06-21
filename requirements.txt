@@ -1,0 +1,5 @@
+datasets
+evaluate
+torch
+torchvision
+transformers[torch]

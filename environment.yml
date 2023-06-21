@@ -1,0 +1,7 @@
+name: entailmentenv
+dependencies:
+  - datasets
+  - evaluate
+  - pytorch
+  - torchvision
+  - transformers
