@@ -30,11 +30,60 @@ class EntailmentCategory(Enum):
 
 def create_preprocess_function(tokenizer):
     # TODO: review what's the best way to include premise and the hypothesis
-    return lambda examples: {
-        "premise": tokenizer(examples["premise"], truncation=True),
-        "hypothesis": tokenizer(examples["hypothesis"], truncation=True),
-        "label": examples["label"],
-    }
+    def preprocess_function(examples):
+        print(examples)
+        entries_to_remove: List[str] = [
+            "promptID",
+            "pairID",
+            "premise_binary_parse",
+            "premise_parse",
+            "hypothesis_binary_parse",
+            "hypothesis_parse",
+            "genre",
+        ]
+        for entry in entries_to_remove:
+            examples.pop(entry, None)
+
+        """
+        examples.remove_columns_(
+            [
+                "promptID",
+                "pairID",
+                "premise_binary_parse",
+                "premise_parse",
+                "hypothesis_binary_parse",
+                "hypothesis_parse",
+                "genre",
+            ]
+        )
+        """
+        print(examples["premise"])
+        examples["premise"] = [
+            tokenizer(example, truncation=True) for example in examples["premise"]
+        ]
+        print(examples["premise"])
+        examples["hypothesis"] = [
+            tokenizer(example, truncation=True) for example in examples["hypothesis"]
+        ]
+        """
+        examples["premise"] = examples["premise"].map(
+            lambda example: tokenizer(example, truncation=True)
+        )
+        examples["hypothesis"] = examples["hypothesis"].map(
+            lambda example: tokenizer(example, truncation=True)
+        )
+        examples["label"] = examples["label"].map(
+            lambda example: tokenizer(example, truncation=True)
+        )
+        """
+        # {
+        #    "premise": tokenizer(examples["premise"], truncation=True),
+        #    "hypothesis": tokenizer(examples["hypothesis"], truncation=True),
+        #    "label": examples["label"],
+        # }
+        return examples
+
+    return preprocess_function
 
 
 def compute_metrics(eval_pred):
