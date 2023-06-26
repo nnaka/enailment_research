@@ -44,20 +44,8 @@ def create_preprocess_function(tokenizer):
         for entry in entries_to_remove:
             examples.pop(entry, None)
 
-        """
-        examples.remove_columns_(
-            [
-                "promptID",
-                "pairID",
-                "premise_binary_parse",
-                "premise_parse",
-                "hypothesis_binary_parse",
-                "hypothesis_parse",
-                "genre",
-            ]
-        )
-        """
         print(examples["premise"])
+        # Truncate context
         examples["premise"] = [
             tokenizer(example, truncation=True) for example in examples["premise"]
         ]
@@ -65,22 +53,6 @@ def create_preprocess_function(tokenizer):
         examples["hypothesis"] = [
             tokenizer(example, truncation=True) for example in examples["hypothesis"]
         ]
-        """
-        examples["premise"] = examples["premise"].map(
-            lambda example: tokenizer(example, truncation=True)
-        )
-        examples["hypothesis"] = examples["hypothesis"].map(
-            lambda example: tokenizer(example, truncation=True)
-        )
-        examples["label"] = examples["label"].map(
-            lambda example: tokenizer(example, truncation=True)
-        )
-        """
-        # {
-        #    "premise": tokenizer(examples["premise"], truncation=True),
-        #    "hypothesis": tokenizer(examples["hypothesis"], truncation=True),
-        #    "label": examples["label"],
-        # }
         return examples
 
     return preprocess_function
