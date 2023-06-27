@@ -5,9 +5,11 @@ Usage:
     $ spark-submit --deploy-mode client _.py
 """
 from argparse import ArgumentParser
+import csv
 from enum import Enum
 import functools
 import os
+import sys
 from typing import Dict, List, Optional, Tuple
 
 from datasets import Dataset, load_dataset
@@ -66,6 +68,10 @@ def compute_metrics(eval_pred):
 
 def main(is_full: bool, is_final: bool) -> None:
     """Main routine"""
+    zero_shot_test()
+
+
+def train_model() -> None:
     print("Running entailment training")
 
     # Preprocess helpers
@@ -150,9 +156,11 @@ def zero_shot_test() -> None:
 
     # Dataset source: https://huggingface.co/datasets/openwebtext
     # dataset: Dataset = load_dataset("openwebtext", split="train")
-    dataset: Dataset = load_dataset(
-        "openwebtext", download_mode="force_redownload", split="train"
-    )
+    # dataset: Dataset = load_dataset(
+    #    "openwebtext", download_mode="force_redownload", split="train"
+    # )
+    # Dataset recommended by Will Merrill
+    dataset: Dataset = load_dataset("multi_nli")
 
     # Get entailment examples
     results: Dict[EntailmentCategory, List[str]] = {
@@ -164,19 +172,38 @@ def zero_shot_test() -> None:
     score: float = 0.0
 
     print(f"{len(dataset)} training examples")
-    for data in dataset[:1000]:
-        res: Dict[str, Union[str, float]] = classifier(data)[0]
+    # print(f"{dataset}")
+    # print(f'{dataset["train"][0]}')
+
+    # Write results in csv
+    csv_writer = csv.writer(sys.stdout)
+
+    for data in dataset["train"]:
+        # print(f"{data}")
+        # print(f'{data["premise"]} {data["hypothesis"]}')
+        # print(f'{data["premise"] + data["hypothesis"]} {classifier(data["premise"] + data["hypothesis"])}')
+        res: Dict[str, Union[str, float]] = classifier(
+            data["premise"] + data["hypothesis"]
+        )[0]
         label: str = res["label"]
         score: float = res["score"]
-        print(f"label: {label}; score: {score}")
+        # print(f"label: {label}; score: {score}")
         if float(score) > 0.5:
-            results[label].append(data)
-            if label == "ENTAILMENT":
-                print(f"Entailment: {data}")
+            results[label].append(f'{data["premise"]}, {data["hypothesis"]}')
 
-    # import pdb; pdb.set_trace()
-    abr_results = {k: len(v) for k, v in results.items()}
-    print(abr_results)
+            csv_writer.writerow(f'{label}, {data["premise"]}, {data["hypothesis"]}')
+
+            if label == "ENTAILMENT":
+                pass
+                #print(f"Entailment: {data}")
+
+    final_results = {k: len(v) for k, v in results.items()}
+
+    for k, vs in results.items():
+        for v in vs:
+            pass
+
+    # print(final_results)
 
 
 if __name__ == "__main__":
