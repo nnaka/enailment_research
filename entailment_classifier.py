@@ -19,6 +19,8 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
     DataCollatorWithPadding,
+    pipeline,
+    Pipeline,
     TrainingArguments,
     Trainer,
 )
@@ -134,13 +136,6 @@ def train_model() -> None:
 
 
 def zero_shot_test() -> None:
-    """Main routine
-    Parameters
-    ----------
-    spark : SparkSession object
-    """
-    from transformers import pipeline, Pipeline
-
     print("Running research project")
 
     # Model source: https://huggingface.co/roberta-large-mnli
@@ -159,6 +154,7 @@ def zero_shot_test() -> None:
     # dataset: Dataset = load_dataset(
     #    "openwebtext", download_mode="force_redownload", split="train"
     # )
+
     # Dataset recommended by Will Merrill
     dataset: Dataset = load_dataset("multi_nli")
 
@@ -172,15 +168,12 @@ def zero_shot_test() -> None:
     score: float = 0.0
 
     print(f"{len(dataset)} training examples")
-    # print(f"{dataset}")
     # print(f'{dataset["train"][0]}')
 
     # Write results in csv
     csv_writer = csv.writer(sys.stdout)
 
     for data in dataset["train"]:
-        # print(f"{data}")
-        # print(f'{data["premise"]} {data["hypothesis"]}')
         # print(f'{data["premise"] + data["hypothesis"]} {classifier(data["premise"] + data["hypothesis"])}')
         res: Dict[str, Union[str, float]] = classifier(
             data["premise"] + data["hypothesis"]
@@ -196,14 +189,6 @@ def zero_shot_test() -> None:
             if label == "ENTAILMENT":
                 pass
                 #print(f"Entailment: {data}")
-
-    final_results = {k: len(v) for k, v in results.items()}
-
-    for k, vs in results.items():
-        for v in vs:
-            pass
-
-    # print(final_results)
 
 
 if __name__ == "__main__":
