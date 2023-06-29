@@ -70,7 +70,7 @@ def compute_metrics(eval_pred):
 
 def main(is_full: bool, is_final: bool) -> None:
     """Main routine"""
-    zero_shot_test()
+    run_zero_shot()
 
 
 def train_model() -> None:
@@ -135,11 +135,17 @@ def train_model() -> None:
     trainer.push_to_hub()
 
 
-def zero_shot_test() -> None:
+def run_zero_shot() -> None:
     print("Running research project")
 
     # Model source: https://huggingface.co/roberta-large-mnli
-    classifier: Pipeline = pipeline("text-classification", model="roberta-large-mnli")
+    classifier: Pipeline = pipeline(
+        "text-classification",
+        model="roberta-large-mnli",
+        tokenizer="roberta-large-mnli",
+        max_length=512,
+        truncation=True,
+    )
 
     # Test zero-shot NLI classification
     print(
@@ -149,12 +155,79 @@ def zero_shot_test() -> None:
     )
     # [{'label': 'ENTAILMENT', 'score': 0.98}]
 
+    open_web_text(classifier)
+
+
+def get_last_sentences(text: str, max_chars: int) -> str:
+    sentences: List[str] = text.split(". ")  # Split the text into sentences
+    selected_sentences: List[str] = []
+    total_chars: int = 0
+
+    # Iterate over the sentences in reverse order
+    for sentence in reversed(sentences):
+        selected_sentences.insert(0, sentence)  # Insert sentence at the beginning
+
+        # Calculate the total characters
+        total_chars += len(sentence) + 2  # Add 2 for the period and space
+
+        if total_chars >= max_chars:
+            break
+
+    return ". ".join(selected_sentences)
+
+
+def open_web_text(classifier: Pipeline) -> None:
     # Dataset source: https://huggingface.co/datasets/openwebtext
-    # dataset: Dataset = load_dataset("openwebtext", split="train")
+    dataset: Dataset = load_dataset("openwebtext")
     # dataset: Dataset = load_dataset(
     #    "openwebtext", download_mode="force_redownload", split="train"
     # )
 
+    # Get entailment examples
+    results: Dict[EntailmentCategory, List[str]] = {
+        "CONTRADICTION": [],
+        "ENTAILMENT": [],
+        "NEUTRAL": [],
+    }
+    label: str = ""
+    score: float = 0.0
+
+    print(f"{len(dataset['train'])} training examples")
+    # print(f'{dataset["train"][0]}')
+
+    # Write results in csv
+    csv_writer = csv.writer(sys.stdout)
+
+    for data in dataset["train"]:
+        # print(data)
+        res: Dict[str, Union[str, float]] = classifier(data["text"])[0]
+        # Truncate sentences (context) to under 512 characters for roberta limit
+        # truncated_sentences: str = (
+        #    get_last_sentences(data["text"], 100)
+        #    if len(data["text"]) >= 100
+        #    else data["text"]
+        # )
+        # try:
+        #    res: Dict[str, Union[str, float]] = classifier(truncated_sentences)[0]
+        # except Exception as e:
+        #    print("=======GETTING HERE=====")
+        #    print(truncated_sentences)
+        #    print(classifier(truncated_sentences))
+        #    print("=======GETTING HERE=====")
+        label: str = res["label"]
+        score: float = res["score"]
+        # print(f"label: {label}; score: {score}")
+        if float(score) > 0.5:
+            results[label].append(f'{data["text"]}')
+
+            csv_writer.writerow([label, score, data["text"]])
+
+            if label == "ENTAILMENT":
+                pass
+                # print(f"Entailment: {data}")
+
+
+def mnli_test(classifier: Pipeline) -> None:
     # Dataset recommended by Will Merrill
     dataset: Dataset = load_dataset("multi_nli")
 
@@ -167,9 +240,8 @@ def zero_shot_test() -> None:
     label: str = ""
     score: float = 0.0
 
-    print(f"{len(dataset)} training examples")
+    print(f"{len(dataset['train'])} training examples")
     # print(f'{dataset["train"][0]}')
-
     # Write results in csv
     csv_writer = csv.writer(sys.stdout)
 
@@ -184,11 +256,11 @@ def zero_shot_test() -> None:
         if float(score) > 0.5:
             results[label].append(f'{data["premise"]}, {data["hypothesis"]}')
 
-            csv_writer.writerow(f'{label}, {data["premise"]}, {data["hypothesis"]}')
+            csv_writer.writerow([label, data["premise"], data["hypothesis"]])
 
             if label == "ENTAILMENT":
                 pass
-                #print(f"Entailment: {data}")
+                # print(f"Entailment: {data}")
 
 
 if __name__ == "__main__":
