@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Tuple
 from datasets import Dataset, load_dataset
 import evaluate
 import numpy as np
+import torch
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
@@ -27,9 +28,9 @@ from transformers import (
 
 
 class EntailmentCategory(Enum):
-    ENTAILMENT = 0
+    CONTRADICTION = 0
     NEUTRAL = 1
-    CONTRADICTION = 2
+    ENTAILMENT = 2
 
 
 def create_preprocess_function(tokenizer):
@@ -139,7 +140,9 @@ def run_zero_shot() -> None:
     print("Running research project")
 
     # Model source: https://huggingface.co/roberta-large-mnli
+    # TODO: Use zero-shot sentence-pair classification
     # Truncate sentences (context) to under 512 characters for roberta limit
+    # TODO: potentially remove max_length truncation
     classifier: Pipeline = pipeline(
         "text-classification",
         model="roberta-large-mnli",
@@ -147,6 +150,8 @@ def run_zero_shot() -> None:
         max_length=512,
         truncation=True,
     )
+
+    labels: List[str] = [i.name for i in EntailmentCategory]
 
     # Test zero-shot NLI classification
     print(
@@ -156,7 +161,62 @@ def run_zero_shot() -> None:
     )
     # [{'label': 'ENTAILMENT', 'score': 0.98}]
 
-    open_web_text(classifier)
+    # Run classifier against data
+    # open_web_text(classifier)
+
+    # Pipeline-less Roberta model based on https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
+    # Download RoBERTa already finetuned for MNLI
+    # force_reload=True based on https://github.com/facebookresearch/fairseq/issues/2678
+    roberta = torch.hub.load(
+        "pytorch/fairseq:main", "roberta.large.mnli", force_reload=True
+    )
+    roberta.eval()  # disable dropout for evaluation
+    roberta.cuda()  # run on gpu
+    classify_open_web_text(roberta)
+
+
+def get_premise_and_hypothesis(document: str, n: int) -> List[str]:
+    """premise is last n sentences before hypothesis"""
+    sentences: List[str] = document.split(". ")
+    premise: str = ""
+    hypothesis: str = ""
+    for i, sentence in enumerate(sentences):
+        if i >= n + 1:
+            premise = "".join(sentences[n:i])
+            hypothesis = sentences[i]
+    return premise, hypothesis
+
+
+def classify_open_web_text(roberta: Pipeline) -> None:
+    # Dataset source: https://huggingface.co/datasets/openwebtext
+    dataset: Dataset = load_dataset("openwebtext")
+
+    # Get entailment examples
+    results: Dict[EntailmentCategory, List[str]] = {
+        "CONTRADICTION": [],
+        "ENTAILMENT": [],
+        "NEUTRAL": [],
+    }
+
+    print(f"{len(dataset['train'])} training examples")
+
+    # Write results in csv
+    csv_writer = csv.writer(sys.stdout)
+
+    id2label: Dict[int, str] = {i.value: i.name for i in EntailmentCategory}
+    premise: str = ""
+    hypothesis: str = ""
+
+    for data in dataset["train"]:
+        # TODO: split into predicate + hypothesis and try every n-previous + sentence window in document
+        # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
+        premise, hypothesis = get_premise_and_hypothesis(data["text"], 3)
+
+        tokens = roberta.encode(premise, hypothesis)
+        label: str = id2label[roberta.predict("mnli", tokens).argmax()]
+        results[label].append(f'{data["text"]}')
+
+        csv_writer.writerow([label, premise, hypothesis])
 
 
 def open_web_text(classifier: Pipeline) -> None:
@@ -178,8 +238,16 @@ def open_web_text(classifier: Pipeline) -> None:
     # Write results in csv
     csv_writer = csv.writer(sys.stdout)
 
+    labels: List[str] = [i.name for i in EntailmentCategory]
+
     for data in dataset["train"]:
-        res: Dict[str, Union[str, float]] = classifier(data["text"])[0]
+        # TODO: split into predicate + hypothesis and try every n-previous + sentence window in document
+        # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
+        premise: str = ""
+        hypothesis: str = ""
+        premise, hypothesis = get_premise_and_hypothesis(data["text"], 3)
+
+        res: Dict[str, Union[str, float]] = classifier(f"{premise}. {hypothesis}")[0]
         label: str = res["label"]
         score: float = res["score"]
         # print(f"label: {label}; score: {score}")

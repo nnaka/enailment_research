@@ -25,6 +25,10 @@ source /ext3/env.sh
 
 This can be used for updating the dependencies within a Singularity Image as well!
 
+Specifically, the following dependencies should be installed in the conatiner:
+`pip3 install torch datasets evaluate numpy transformers scikit-learn hydra-core omegaconf bitarray sacrebleu`
+
+
 ## On SLURM
 
 ```
