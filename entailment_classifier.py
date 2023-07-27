@@ -10,10 +10,12 @@ from enum import Enum
 import functools
 import os
 import sys
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Generator, List, Optional, Tuple
 
 from datasets import Dataset, load_dataset
 import evaluate
+import nltk
+from nltk.tokenize import sent_tokenize
 import numpy as np
 import torch
 from transformers import (
@@ -143,6 +145,7 @@ def run_zero_shot() -> None:
     # TODO: Use zero-shot sentence-pair classification
     # Truncate sentences (context) to under 512 characters for roberta limit
     # TODO: potentially remove max_length truncation
+    """
     classifier: Pipeline = pipeline(
         "text-classification",
         model="roberta-large-mnli",
@@ -163,6 +166,7 @@ def run_zero_shot() -> None:
 
     # Run classifier against data
     # open_web_text(classifier)
+    """
 
     # Pipeline-less Roberta model based on https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
     # Download RoBERTa already finetuned for MNLI
@@ -170,24 +174,45 @@ def run_zero_shot() -> None:
     roberta = torch.hub.load(
         "pytorch/fairseq:main", "roberta.large.mnli", force_reload=True
     )
+
     roberta.eval()  # disable dropout for evaluation
     roberta.cuda()  # run on gpu
+
+    # Test
+    # Encode a pair of sentences and make a prediction
+    tokens = roberta.encode(
+        "Roberta is a heavily optimized version of BERT.",
+        "Roberta is not very optimized.",
+    )
+    print(f"TEST 1:")
+    print(roberta.predict("mnli", tokens).argmax())  # 0: contradiction
+
+    # Encode another pair of sentences
+    tokens = roberta.encode(
+        "Roberta is a heavily optimized version of BERT.", "Roberta is based on BERT."
+    )
+    print(f"TEST 1:")
+    print(roberta.predict("mnli", tokens).argmax())  # 2: entailment
+
     classify_open_web_text(roberta)
 
 
-def get_premise_and_hypothesis(document: str, n: int) -> List[str]:
+def get_premise_and_hypothesis(
+    document: str, n: int
+) -> Generator[List[str], None, None]:
     """premise is last n sentences before hypothesis"""
-    sentences: List[str] = document.split(". ")
+    sentences: List[str] = sent_tokenize(document)
     premise: str = ""
     hypothesis: str = ""
     for i, sentence in enumerate(sentences):
         if i >= n + 1:
-            premise = "".join(sentences[n:i])
+            premise = "".join(sentences[i - n : i])
             hypothesis = sentences[i]
-    return premise, hypothesis
+            yield premise, hypothesis
 
 
 def classify_open_web_text(roberta: Pipeline) -> None:
+    """Classification using roberta pipeline classifier (i.e. pair input)"""
     # Dataset source: https://huggingface.co/datasets/openwebtext
     dataset: Dataset = load_dataset("openwebtext")
 
@@ -200,6 +225,9 @@ def classify_open_web_text(roberta: Pipeline) -> None:
 
     print(f"{len(dataset['train'])} training examples")
 
+    # NLTK package for splitting sentences
+    nltk.download("punkt")
+
     # Write results in csv
     csv_writer = csv.writer(sys.stdout)
 
@@ -210,16 +238,23 @@ def classify_open_web_text(roberta: Pipeline) -> None:
     for data in dataset["train"]:
         # TODO: split into predicate + hypothesis and try every n-previous + sentence window in document
         # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
-        premise, hypothesis = get_premise_and_hypothesis(data["text"], 3)
+        # Make sure the tokenization is within the 512-token limit
+        for (premise, hypothesis) in get_premise_and_hypothesis(data["text"], 5):
+            tokens = roberta.encode(premise, hypothesis)
+            print(f"{premise} {hypothesis}; TOKENS: {tokens}; size: {tokens.size()}")
 
-        tokens = roberta.encode(premise, hypothesis)
-        label: str = id2label[roberta.predict("mnli", tokens).argmax()]
-        results[label].append(f'{data["text"]}')
+            if tokens.size(dim=0) > 512:
+                # raise ValueError("Input exceeds the 512-token limit.")
+                print("Input exceeds the 512-token limit.")
+            else:
+                label: str = id2label[roberta.predict("mnli", tokens).argmax().item()]
+                results[label].append(f'{data["text"]}')
 
-        csv_writer.writerow([label, premise, hypothesis])
+                csv_writer.writerow([label, premise, hypothesis])
 
 
 def open_web_text(classifier: Pipeline) -> None:
+    """Classification using pipeline classifier (i.e. one input)"""
     # Dataset source: https://huggingface.co/datasets/openwebtext
     dataset: Dataset = load_dataset("openwebtext")
 
@@ -245,7 +280,7 @@ def open_web_text(classifier: Pipeline) -> None:
         # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
         premise: str = ""
         hypothesis: str = ""
-        premise, hypothesis = get_premise_and_hypothesis(data["text"], 3)
+        premise, hypothesis = get_premise_and_hypothesis(data["text"], 1)
 
         res: Dict[str, Union[str, float]] = classifier(f"{premise}. {hypothesis}")[0]
         label: str = res["label"]
