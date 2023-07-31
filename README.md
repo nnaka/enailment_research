@@ -42,6 +42,12 @@ squeue -u $USER
 cat python-entailment-classifier.out
 ```
 
+### Copying data from Greene to local
+
+Follow instructions found [here](https://sites.google.com/nyu.edu/nyu-hpc/hpc-systems/hpc-storage/data-management/data-transfers)
+
+One shot command: `scp nn1331@dtn.hpc.nyu.edu:/scratch/nn1331/entailment/data.csv .`
+
 ## Legacy instructions
 
 ### Installation

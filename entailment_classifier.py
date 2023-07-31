@@ -4,6 +4,7 @@
 Usage:
     $ spark-submit --deploy-mode client _.py
 """
+
 from argparse import ArgumentParser
 import csv
 from enum import Enum
@@ -71,9 +72,9 @@ def compute_metrics(eval_pred):
     return accuracy.compute(predictions=predictions, references=labels)
 
 
-def main(is_full: bool, is_final: bool) -> None:
+def main(is_full: bool, is_final: bool, output_path: str = None) -> None:
     """Main routine"""
-    run_zero_shot()
+    run_zero_shot(output_path)
 
 
 def train_model() -> None:
@@ -138,36 +139,10 @@ def train_model() -> None:
     trainer.push_to_hub()
 
 
-def run_zero_shot() -> None:
+def run_zero_shot(output: str = None) -> None:
     print("Running research project")
 
     # Model source: https://huggingface.co/roberta-large-mnli
-    # TODO: Use zero-shot sentence-pair classification
-    # Truncate sentences (context) to under 512 characters for roberta limit
-    # TODO: potentially remove max_length truncation
-    """
-    classifier: Pipeline = pipeline(
-        "text-classification",
-        model="roberta-large-mnli",
-        tokenizer="roberta-large-mnli",
-        max_length=512,
-        truncation=True,
-    )
-
-    labels: List[str] = [i.name for i in EntailmentCategory]
-
-    # Test zero-shot NLI classification
-    print(
-        classifier(
-            "A soccer game with multiple males playing. Some men are playing a sport."
-        )
-    )
-    # [{'label': 'ENTAILMENT', 'score': 0.98}]
-
-    # Run classifier against data
-    # open_web_text(classifier)
-    """
-
     # Pipeline-less Roberta model based on https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
     # Download RoBERTa already finetuned for MNLI
     # force_reload=True based on https://github.com/facebookresearch/fairseq/issues/2678
@@ -194,7 +169,11 @@ def run_zero_shot() -> None:
     print(f"TEST 1:")
     print(roberta.predict("mnli", tokens).argmax())  # 2: entailment
 
-    classify_open_web_text(roberta)
+    # Experiment
+    DEFUALT_OUTPUT_CSV_FILE_PATH: str = "/scratch/nn1331/entailment/data.csv"
+    output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
+
+    classify_open_web_text(roberta, output_path)
 
 
 def get_premise_and_hypothesis(
@@ -211,7 +190,16 @@ def get_premise_and_hypothesis(
             yield premise, hypothesis
 
 
-def classify_open_web_text(roberta: Pipeline) -> None:
+def get_csv_writer(file_path: str = None):
+    """Either write to file path or to stdout"""
+    if file_path is not None:
+        csv_file = open(file_path, "w", newline="")
+        return csv.writer(csv_file)
+    else:
+        return csv.writer(sys.stdout)
+
+
+def classify_open_web_text(roberta: Pipeline, file_path: str = None) -> None:
     """Classification using roberta pipeline classifier (i.e. pair input)"""
     # Dataset source: https://huggingface.co/datasets/openwebtext
     dataset: Dataset = load_dataset("openwebtext")
@@ -229,14 +217,14 @@ def classify_open_web_text(roberta: Pipeline) -> None:
     nltk.download("punkt")
 
     # Write results in csv
-    csv_writer = csv.writer(sys.stdout)
+    csv_writer = get_csv_writer(file_path)
 
     id2label: Dict[int, str] = {i.value: i.name for i in EntailmentCategory}
     premise: str = ""
     hypothesis: str = ""
 
     for data in dataset["train"]:
-        # TODO: split into predicate + hypothesis and try every n-previous + sentence window in document
+        # Split into predicate + hypothesis and try every n-previous + sentence window in document
         # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
         # Make sure the tokenization is within the 512-token limit
         for (premise, hypothesis) in get_premise_and_hypothesis(data["text"], 5):
@@ -251,45 +239,6 @@ def classify_open_web_text(roberta: Pipeline) -> None:
                 results[label].append(f'{data["text"]}')
 
                 csv_writer.writerow([label, premise, hypothesis])
-
-
-def open_web_text(classifier: Pipeline) -> None:
-    """Classification using pipeline classifier (i.e. one input)"""
-    # Dataset source: https://huggingface.co/datasets/openwebtext
-    dataset: Dataset = load_dataset("openwebtext")
-
-    # Get entailment examples
-    results: Dict[EntailmentCategory, List[str]] = {
-        "CONTRADICTION": [],
-        "ENTAILMENT": [],
-        "NEUTRAL": [],
-    }
-    label: str = ""
-    score: float = 0.0
-
-    print(f"{len(dataset['train'])} training examples")
-    # print(f'{dataset["train"][0]}')
-
-    # Write results in csv
-    csv_writer = csv.writer(sys.stdout)
-
-    labels: List[str] = [i.name for i in EntailmentCategory]
-
-    for data in dataset["train"]:
-        # TODO: split into predicate + hypothesis and try every n-previous + sentence window in document
-        # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
-        premise: str = ""
-        hypothesis: str = ""
-        premise, hypothesis = get_premise_and_hypothesis(data["text"], 1)
-
-        res: Dict[str, Union[str, float]] = classifier(f"{premise}. {hypothesis}")[0]
-        label: str = res["label"]
-        score: float = res["score"]
-        # print(f"label: {label}; score: {score}")
-        if float(score) > 0.5:
-            results[label].append(f'{data["text"]}')
-
-            csv_writer.writerow([label, score, data["text"]])
 
 
 def mnli_test(classifier: Pipeline) -> None:
@@ -339,6 +288,12 @@ if __name__ == "__main__":
         action="store_true",
         help="Run on final datasets, train/test",
     )
+    parser.add_argument(
+        "--out",
+        dest="output",
+        type=str,
+        help="Output CSV file path",
+    )
 
     args = parser.parse_args()
     print(f"Using args: {args}")
@@ -348,4 +303,4 @@ if __name__ == "__main__":
 
     # Call our main routine
     # main(spark, args.is_full, args.is_final)
-    main(args.is_full, args.is_final)
+    main(args.is_full, args.is_final, args.output)
