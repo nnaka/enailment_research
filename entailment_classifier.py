@@ -173,7 +173,11 @@ def run_zero_shot(output: str = None) -> None:
     DEFUALT_OUTPUT_CSV_FILE_PATH: str = "/scratch/nn1331/entailment/data.csv"
     output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
 
-    classify_open_web_text(roberta, output_path)
+    # TODO: vanilla entailment classification on premise + hypothesis in data
+    # classify_open_web_text(roberta, output_path)
+
+    # entailment classification for summarized groups of n sentences of data
+    classify_summarized_text(roberta, output_path)
 
 
 def get_premise_and_hypothesis(
@@ -275,6 +279,63 @@ def mnli_test(classifier: Pipeline) -> None:
             if label == "ENTAILMENT":
                 pass
                 # print(f"Entailment: {data}")
+
+
+def summarize_text(s: str) -> str:
+    classifier: Pipeline = pipeline("summarization")
+    return classifier(s)[0]["summary_text"]
+
+
+def get_n_sentences(s: str, n: int) -> Generator[List[str], None, None]:
+    """Return groups of n sentences of s"""
+    sentences: List[str] = sent_tokenize(s)
+    premise: str = ""
+    hypothesis: str = ""
+    for i in range(0, len(sentences), n):
+        yield " ".join(sentences[i : i + n])
+
+
+def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
+    """Classification using roberta pipeline classifier (i.e. pair input)"""
+    # Dataset source: https://huggingface.co/datasets/openwebtext
+    dataset: Dataset = load_dataset("openwebtext")
+
+    # Get entailment examples
+    results: Dict[EntailmentCategory, List[str]] = {
+        "CONTRADICTION": [],
+        "ENTAILMENT": [],
+        "NEUTRAL": [],
+    }
+
+    print(f"{len(dataset['train'])} training examples")
+
+    # NLTK package for splitting sentences
+    nltk.download("punkt")
+
+    # Write results in csv
+    csv_writer = get_csv_writer(file_path)
+
+    id2label: Dict[int, str] = {i.value: i.name for i in EntailmentCategory}
+    premise: str = ""
+    hypothesis: str = ""
+
+    for data in dataset["train"]:
+        # Split into predicate + hypothesis and try every n-previous + sentence window in document
+        # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
+        # Make sure the tokenization is within the 512-token limit
+        for premise in get_n_sentences(data["text"], 5):
+            hypothesis: str = summarize_text(premise)
+            tokens = roberta.encode(premise, hypothesis)
+            print(f"{premise} {hypothesis}; TOKENS: {tokens}; size: {tokens.size()}")
+
+            if tokens.size(dim=0) > 512:
+                # raise ValueError("Input exceeds the 512-token limit.")
+                print("Input exceeds the 512-token limit.")
+            else:
+                label: str = id2label[roberta.predict("mnli", tokens).argmax().item()]
+                results[label].append(f'{data["text"]}')
+
+                csv_writer.writerow([label, premise, hypothesis])
 
 
 if __name__ == "__main__":
