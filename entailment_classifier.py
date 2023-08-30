@@ -74,7 +74,8 @@ def compute_metrics(eval_pred):
 
 def main(is_full: bool, is_final: bool, output_path: str = None) -> None:
     """Main routine"""
-    run_zero_shot(output_path)
+    # run_zero_shot(output_path)
+    run_zero_shot_nli(output_path)
 
 
 def train_model() -> None:
@@ -166,7 +167,7 @@ def run_zero_shot(output: str = None) -> None:
     tokens = roberta.encode(
         "Roberta is a heavily optimized version of BERT.", "Roberta is based on BERT."
     )
-    print(f"TEST 1:")
+    print(f"TEST 2:")
     print(roberta.predict("mnli", tokens).argmax())  # 2: entailment
 
     # Experiment
@@ -174,10 +175,43 @@ def run_zero_shot(output: str = None) -> None:
     output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
 
     # TODO: vanilla entailment classification on premise + hypothesis in data
-    # classify_open_web_text(roberta, output_path)
+    classify_open_web_text(roberta, output_path)
 
+
+def run_zero_shot_nli(output: str = None) -> None:
+    # "pytorch/fairseq:main", "roberta.large.mnli", force_reload=True
+    nli_model = pipeline(
+        "zero-shot-classification", model="google/t5_xxl_true_nli_mixture"
+    )
+
+    """
+    nli_model = torch.hub.load(
+        model="google/t5_xxl_true_nli_mixture", force_reload=True
+    )
+    """
+
+    nli_model.eval()  # disable dropout for evaluation
+    nli_model.cuda()  # run on gpu
+
+    # Test
+    premise: str = "This model is a heavily optimized version of BERT."
+    hypothesis: str = "This model is not very optimized."
+    model_input: str = f"premise: {premise} hypothesis: {hypothesis}"
+
+    print(f"TEST 1:")
+    print(nli_model.predict(model_input).argmax())  # 0: not entailment
+
+    hypothesis = "Roberta is based on BERT."
+    model_input = f"premise: {premise} hypothesis: {hypothesis}"
+
+    print(f"TEST 2:")
+    print(nli_model.predict(model_input).argmax())  # 1: entailment
+
+    # Experiment
+    DEFUALT_OUTPUT_CSV_FILE_PATH: str = "/scratch/nn1331/entailment/data.csv"
+    output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
     # entailment classification for summarized groups of n sentences of data
-    classify_summarized_text(roberta, output_path)
+    # classify_summarized_text(roberta, output_path)
 
 
 def get_premise_and_hypothesis(
@@ -319,14 +353,27 @@ def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
     premise: str = ""
     hypothesis: str = ""
 
+    # Summarization model
+    classifier: Pipeline = pipeline("summarization")
+
     for data in dataset["train"]:
         # Split into predicate + hypothesis and try every n-previous + sentence window in document
         # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
         # Make sure the tokenization is within the 512-token limit
-        for premise in get_n_sentences(data["text"], 5):
-            hypothesis: str = summarize_text(premise)
+        for premise in get_n_sentences(data["text"], 20):
+            # Summarize premise
+            try:
+                print(f"HERE: {classifier(premise)}")
+                print(f"HERE2: {classifier(premise)[0]['summary_text']}")
+
+                hypothesis: str = classifier(premise)[0]["summary_text"]
+            except IndexError as e:
+                print(f"ERROR: {e}")
+                continue
             tokens = roberta.encode(premise, hypothesis)
-            print(f"{premise} {hypothesis}; TOKENS: {tokens}; size: {tokens.size()}")
+            print(
+                f"PREMISE: {premise}; HYPOTHESIS: {hypothesis}; TOKENS: {tokens}; size: {tokens.size()}"
+            )
 
             if tokens.size(dim=0) > 512:
                 # raise ValueError("Input exceeds the 512-token limit.")
