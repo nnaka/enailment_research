@@ -11,7 +11,7 @@ from enum import Enum
 import functools
 import os
 import sys
-from typing import Dict, Generator, List, Optional, Tuple
+from typing import Dict, Generator, List, Optional, Tuple, Union
 
 from datasets import Dataset, load_dataset
 import evaluate
@@ -21,6 +21,7 @@ import numpy as np
 import torch
 from transformers import (
     AutoModelForSequenceClassification,
+    AutoModelForSeq2SeqLM,
     AutoTokenizer,
     DataCollatorWithPadding,
     pipeline,
@@ -78,6 +79,7 @@ def main(is_full: bool, is_final: bool, output_path: str = None) -> None:
     run_zero_shot_nli(output_path)
 
 
+# deprecated
 def train_model() -> None:
     print("Running entailment training")
 
@@ -140,6 +142,7 @@ def train_model() -> None:
     trainer.push_to_hub()
 
 
+# deprecated
 def run_zero_shot(output: str = None) -> None:
     print("Running research project")
 
@@ -156,7 +159,7 @@ def run_zero_shot(output: str = None) -> None:
 
     # Test
     # Encode a pair of sentences and make a prediction
-    tokens = roberta.encode(
+    tokens: torch.Tensor = roberta.encode(
         "Roberta is a heavily optimized version of BERT.",
         "Roberta is not very optimized.",
     )
@@ -179,10 +182,26 @@ def run_zero_shot(output: str = None) -> None:
 
 
 def run_zero_shot_nli(output: str = None) -> None:
-    # "pytorch/fairseq:main", "roberta.large.mnli", force_reload=True
-    nli_model = pipeline(
-        "zero-shot-classification", model="google/t5_xxl_true_nli_mixture"
+    # Run smaller T5 model for interactive mode purposes
+    tokenizer = AutoTokenizer.from_pretrained("t5-small")
+    nli_model = AutoModelForSeq2SeqLM.from_pretrained(
+        "t5-small",
+        device_map="auto",
+        offload_folder="offload_folder",
+        torch_dtype="auto",
+        offload_state_dict=True,
     )
+
+    """
+    tokenizer = AutoTokenizer.from_pretrained("google/t5_xxl_true_nli_mixture")
+    nli_model = AutoModelForSeq2SeqLM.from_pretrained(
+        "google/t5_xxl_true_nli_mixture",
+        device_map="auto",
+        offload_folder="offload_folder",
+        torch_dtype="auto",
+        offload_state_dict=True,
+        )
+    """
 
     """
     nli_model = torch.hub.load(
@@ -191,21 +210,36 @@ def run_zero_shot_nli(output: str = None) -> None:
     """
 
     nli_model.eval()  # disable dropout for evaluation
+    assert torch.cuda.is_available()
     nli_model.cuda()  # run on gpu
 
     # Test
     premise: str = "This model is a heavily optimized version of BERT."
     hypothesis: str = "This model is not very optimized."
-    model_input: str = f"premise: {premise} hypothesis: {hypothesis}"
+    model_input: List[int] = tokenizer.encode(
+        f"premise: {premise} hypothesis: {hypothesis}", return_tensors="pt"
+    ).cuda()
 
     print(f"TEST 1:")
-    print(nli_model.predict(model_input).argmax())  # 0: not entailment
+    print(
+        tokenizer.decode(nli_model.generate(model_input)[0], skip_special_tokens=True)
+    )
+    # print(nli_model.generate(model_input)[0])  # 0: not entailment
 
     hypothesis = "Roberta is based on BERT."
-    model_input = f"premise: {premise} hypothesis: {hypothesis}"
+    model_input = tokenizer.encode(
+        f"premise: {premise} hypothesis: {hypothesis}", return_tensors="pt"
+    ).cuda()
 
     print(f"TEST 2:")
-    print(nli_model.predict(model_input).argmax())  # 1: entailment
+    print(
+        tokenizer.decode(nli_model.generate(model_input)[0], skip_special_tokens=True)
+    )
+    # print(nli_model.predict(model_input).argmax())  # 1: entailment
+
+    import pdb
+
+    pdb.set_trace()
 
     # Experiment
     DEFUALT_OUTPUT_CSV_FILE_PATH: str = "/scratch/nn1331/entailment/data.csv"
@@ -216,7 +250,7 @@ def run_zero_shot_nli(output: str = None) -> None:
 
 def get_premise_and_hypothesis(
     document: str, n: int
-) -> Generator[List[str], None, None]:
+) -> Generator[Tuple[str, str], None, None]:
     """premise is last n sentences before hypothesis"""
     sentences: List[str] = sent_tokenize(document)
     premise: str = ""
@@ -237,16 +271,17 @@ def get_csv_writer(file_path: str = None):
         return csv.writer(sys.stdout)
 
 
+# deprecated
 def classify_open_web_text(roberta: Pipeline, file_path: str = None) -> None:
     """Classification using roberta pipeline classifier (i.e. pair input)"""
     # Dataset source: https://huggingface.co/datasets/openwebtext
     dataset: Dataset = load_dataset("openwebtext")
 
     # Get entailment examples
-    results: Dict[EntailmentCategory, List[str]] = {
-        "CONTRADICTION": [],
-        "ENTAILMENT": [],
-        "NEUTRAL": [],
+    results: Dict[str, List[str]] = {
+        EntailmentCategory.CONTRADICTION.name: [],
+        EntailmentCategory.ENTAILMENT.name: [],
+        EntailmentCategory.NEUTRAL.name: [],
     }
 
     print(f"{len(dataset['train'])} training examples")
@@ -266,7 +301,7 @@ def classify_open_web_text(roberta: Pipeline, file_path: str = None) -> None:
         # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
         # Make sure the tokenization is within the 512-token limit
         for (premise, hypothesis) in get_premise_and_hypothesis(data["text"], 5):
-            tokens = roberta.encode(premise, hypothesis)
+            tokens: torch.Tensor = roberta.encode(premise, hypothesis)
             print(f"{premise} {hypothesis}; TOKENS: {tokens}; size: {tokens.size()}")
 
             if tokens.size(dim=0) > 512:
@@ -279,15 +314,16 @@ def classify_open_web_text(roberta: Pipeline, file_path: str = None) -> None:
                 csv_writer.writerow([label, premise, hypothesis])
 
 
+# deprecated
 def mnli_test(classifier: Pipeline) -> None:
     # Dataset recommended by Will Merrill
     dataset: Dataset = load_dataset("multi_nli")
 
     # Get entailment examples
-    results: Dict[EntailmentCategory, List[str]] = {
-        "CONTRADICTION": [],
-        "ENTAILMENT": [],
-        "NEUTRAL": [],
+    results: Dict[str, List[str]] = {
+        EntailmentCategory.CONTRADICTION.name: [],
+        EntailmentCategory.ENTAILMENT.name: [],
+        EntailmentCategory.NEUTRAL.name: [],
     }
     label: str = ""
     score: float = 0.0
@@ -302,8 +338,8 @@ def mnli_test(classifier: Pipeline) -> None:
         res: Dict[str, Union[str, float]] = classifier(
             data["premise"] + data["hypothesis"]
         )[0]
-        label: str = res["label"]
-        score: float = res["score"]
+        label = str(res["label"])
+        score = float(res["score"])
         # print(f"label: {label}; score: {score}")
         if float(score) > 0.5:
             results[label].append(f'{data["premise"]}, {data["hypothesis"]}')
@@ -320,7 +356,7 @@ def summarize_text(s: str) -> str:
     return classifier(s)[0]["summary_text"]
 
 
-def get_n_sentences(s: str, n: int) -> Generator[List[str], None, None]:
+def get_n_sentences(s: str, n: int) -> Generator[str, None, None]:
     """Return groups of n sentences of s"""
     sentences: List[str] = sent_tokenize(s)
     premise: str = ""
@@ -336,9 +372,9 @@ def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
 
     # Get entailment examples
     results: Dict[EntailmentCategory, List[str]] = {
-        "CONTRADICTION": [],
-        "ENTAILMENT": [],
-        "NEUTRAL": [],
+        EntailmentCategory.CONTRADICTION: [],
+        EntailmentCategory.ENTAILMENT: [],
+        EntailmentCategory.NEUTRAL: [],
     }
 
     print(f"{len(dataset['train'])} training examples")
@@ -349,7 +385,8 @@ def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
     # Write results in csv
     csv_writer = get_csv_writer(file_path)
 
-    id2label: Dict[int, str] = {i.value: i.name for i in EntailmentCategory}
+    id2label: Dict[int, EntailmentCategory] = {i.value: i for i in EntailmentCategory}
+
     premise: str = ""
     hypothesis: str = ""
 
@@ -366,11 +403,11 @@ def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
                 print(f"HERE: {classifier(premise)}")
                 print(f"HERE2: {classifier(premise)[0]['summary_text']}")
 
-                hypothesis: str = classifier(premise)[0]["summary_text"]
+                hypothesis = classifier(premise)[0]["summary_text"]
             except IndexError as e:
                 print(f"ERROR: {e}")
                 continue
-            tokens = roberta.encode(premise, hypothesis)
+            tokens: torch.Tensor = roberta.encode(premise, hypothesis)
             print(
                 f"PREMISE: {premise}; HYPOTHESIS: {hypothesis}; TOKENS: {tokens}; size: {tokens.size()}"
             )
@@ -379,7 +416,9 @@ def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
                 # raise ValueError("Input exceeds the 512-token limit.")
                 print("Input exceeds the 512-token limit.")
             else:
-                label: str = id2label[roberta.predict("mnli", tokens).argmax().item()]
+                label: EntailmentCategory = id2label[
+                    roberta.predict("mnli", tokens).argmax().item()
+                ]
                 results[label].append(f'{data["text"]}')
 
                 csv_writer.writerow([label, premise, hypothesis])

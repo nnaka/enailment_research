@@ -48,6 +48,26 @@ Follow instructions found [here](https://sites.google.com/nyu.edu/nyu-hpc/hpc-sy
 
 One shot command: `scp nn1331@dtn.hpc.nyu.edu:/scratch/nn1331/entailment/data.csv .`
 
+### Running jobs in interactive mode
+
+```
+srun --gres=gpu:1 --pty /bin/bash
+
+# If you have the resources
+srun --gres=gpu:a100:1 --mem-per-cpu=64GB --pty /bin/bash
+
+# Within the session
+singularity exec --nv --overlay /scratch/nn1331/entailment/entailment.ext3:ro \
+	/scratch/work/public/singularity/cuda11.6.124-cudnn8.4.0.27-devel-ubuntu20.04.4.sif \
+	/bin/bash
+
+source /ext3/env.sh
+```
+
+Additional
+[resources](https://github.com/ZhaofengWu/lm_entailment#wills-notes-for-running-on-nyu-cluster)
+to refer to
+
 ## Legacy instructions
 
 ### Installation
