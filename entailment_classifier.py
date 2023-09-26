@@ -79,108 +79,6 @@ def main(is_full: bool, is_final: bool, output_path: str = None) -> None:
     run_zero_shot_nli(output_path)
 
 
-# deprecated
-def train_model() -> None:
-    print("Running entailment training")
-
-    # Preprocess helpers
-    tokenizer: AutoTokenizer = AutoTokenizer.from_pretrained("roberta-base")
-    data_collator: DataCollatorWithPadding = DataCollatorWithPadding(
-        tokenizer=tokenizer
-    )
-
-    # Dataset recommended by Will Merrill
-    dataset: Dataset = load_dataset("multi_nli")
-
-    print(dataset)
-    print(dataset.keys())
-
-    # Preprocess data
-    preprocess_function = create_preprocess_function(tokenizer)
-    tokenized_dataset = dataset.map(preprocess_function, batched=True)
-
-    print(tokenized_dataset)
-
-    accuracy = evaluate.load("accuracy")
-
-    id2label: Dict[int, str] = {i.value: i.name for i in EntailmentCategory}
-    label2id: Dict[str, int] = {i.name: i.value for i in EntailmentCategory}
-
-    model: AutoModelForSequenceClassification = (
-        AutoModelForSequenceClassification.from_pretrained(
-            "roberta-large-mnli",
-            num_labels=len(id2label.keys()),
-            id2label=id2label,
-            label2id=label2id,
-        )
-    )
-
-    training_args: TrainingArguments = TrainingArguments(
-        output_dir="entailment_classifier_model",
-        learning_rate=2e-5,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
-        num_train_epochs=2,
-        weight_decay=0.01,
-        evaluation_strategy="epoch",
-        save_strategy="epoch",
-        load_best_model_at_end=True,
-        push_to_hub=True,
-    )
-
-    trainer: Trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=tokenized_dataset["train"],
-        eval_dataset=tokenized_dataset["validation_matched"],
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-        compute_metrics=compute_metrics,
-    )
-
-    trainer.train()
-    trainer.push_to_hub()
-
-
-# deprecated
-def run_zero_shot(output: str = None) -> None:
-    print("Running research project")
-
-    # Model source: https://huggingface.co/roberta-large-mnli
-    # Pipeline-less Roberta model based on https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
-    # Download RoBERTa already finetuned for MNLI
-    # force_reload=True based on https://github.com/facebookresearch/fairseq/issues/2678
-    roberta = torch.hub.load(
-        "pytorch/fairseq:main", "roberta.large.mnli", force_reload=True
-    )
-
-    roberta.eval()  # disable dropout for evaluation
-    roberta.cuda()  # run on gpu
-
-    # Test
-    # Encode a pair of sentences and make a prediction
-    tokens: torch.Tensor = roberta.encode(
-        "Roberta is a heavily optimized version of BERT.",
-        "Roberta is not very optimized.",
-    )
-    print(f"TEST 1:")
-    print(roberta.predict("mnli", tokens).argmax())  # 0: contradiction
-
-    # Encode another pair of sentences
-    tokens = roberta.encode(
-        "Roberta is a heavily optimized version of BERT.", "Roberta is based on BERT."
-    )
-    print(f"TEST 2:")
-    print(roberta.predict("mnli", tokens).argmax())  # 2: entailment
-
-    # Experiment
-    DEFUALT_OUTPUT_CSV_FILE_PATH: str = "/scratch/nn1331/entailment/data.csv"
-    output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
-
-    # TODO: vanilla entailment classification on premise + hypothesis in data
-    classify_open_web_text(roberta, output_path)
-
-
 def run_zero_shot_nli(output: str = None) -> None:
     # Run smaller T5 model for interactive mode purposes
     tokenizer = AutoTokenizer.from_pretrained("t5-small")
@@ -201,12 +99,6 @@ def run_zero_shot_nli(output: str = None) -> None:
         torch_dtype="auto",
         offload_state_dict=True,
         )
-    """
-
-    """
-    nli_model = torch.hub.load(
-        model="google/t5_xxl_true_nli_mixture", force_reload=True
-    )
     """
 
     nli_model.eval()  # disable dropout for evaluation
@@ -237,15 +129,11 @@ def run_zero_shot_nli(output: str = None) -> None:
     )
     # print(nli_model.predict(model_input).argmax())  # 1: entailment
 
-    import pdb
-
-    pdb.set_trace()
-
     # Experiment
     DEFUALT_OUTPUT_CSV_FILE_PATH: str = "/scratch/nn1331/entailment/data.csv"
     output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
     # entailment classification for summarized groups of n sentences of data
-    # classify_summarized_text(roberta, output_path)
+    classify_summarized_text(nli_model, tokenizer, output_path)
 
 
 def get_premise_and_hypothesis(
@@ -271,86 +159,6 @@ def get_csv_writer(file_path: str = None):
         return csv.writer(sys.stdout)
 
 
-# deprecated
-def classify_open_web_text(roberta: Pipeline, file_path: str = None) -> None:
-    """Classification using roberta pipeline classifier (i.e. pair input)"""
-    # Dataset source: https://huggingface.co/datasets/openwebtext
-    dataset: Dataset = load_dataset("openwebtext")
-
-    # Get entailment examples
-    results: Dict[str, List[str]] = {
-        EntailmentCategory.CONTRADICTION.name: [],
-        EntailmentCategory.ENTAILMENT.name: [],
-        EntailmentCategory.NEUTRAL.name: [],
-    }
-
-    print(f"{len(dataset['train'])} training examples")
-
-    # NLTK package for splitting sentences
-    nltk.download("punkt")
-
-    # Write results in csv
-    csv_writer = get_csv_writer(file_path)
-
-    id2label: Dict[int, str] = {i.value: i.name for i in EntailmentCategory}
-    premise: str = ""
-    hypothesis: str = ""
-
-    for data in dataset["train"]:
-        # Split into predicate + hypothesis and try every n-previous + sentence window in document
-        # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
-        # Make sure the tokenization is within the 512-token limit
-        for (premise, hypothesis) in get_premise_and_hypothesis(data["text"], 5):
-            tokens: torch.Tensor = roberta.encode(premise, hypothesis)
-            print(f"{premise} {hypothesis}; TOKENS: {tokens}; size: {tokens.size()}")
-
-            if tokens.size(dim=0) > 512:
-                # raise ValueError("Input exceeds the 512-token limit.")
-                print("Input exceeds the 512-token limit.")
-            else:
-                label: str = id2label[roberta.predict("mnli", tokens).argmax().item()]
-                results[label].append(f'{data["text"]}')
-
-                csv_writer.writerow([label, premise, hypothesis])
-
-
-# deprecated
-def mnli_test(classifier: Pipeline) -> None:
-    # Dataset recommended by Will Merrill
-    dataset: Dataset = load_dataset("multi_nli")
-
-    # Get entailment examples
-    results: Dict[str, List[str]] = {
-        EntailmentCategory.CONTRADICTION.name: [],
-        EntailmentCategory.ENTAILMENT.name: [],
-        EntailmentCategory.NEUTRAL.name: [],
-    }
-    label: str = ""
-    score: float = 0.0
-
-    print(f"{len(dataset['train'])} training examples")
-    # print(f'{dataset["train"][0]}')
-    # Write results in csv
-    csv_writer = csv.writer(sys.stdout)
-
-    for data in dataset["train"]:
-        # print(f'{data["premise"] + data["hypothesis"]} {classifier(data["premise"] + data["hypothesis"])}')
-        res: Dict[str, Union[str, float]] = classifier(
-            data["premise"] + data["hypothesis"]
-        )[0]
-        label = str(res["label"])
-        score = float(res["score"])
-        # print(f"label: {label}; score: {score}")
-        if float(score) > 0.5:
-            results[label].append(f'{data["premise"]}, {data["hypothesis"]}')
-
-            csv_writer.writerow([label, data["premise"], data["hypothesis"]])
-
-            if label == "ENTAILMENT":
-                pass
-                # print(f"Entailment: {data}")
-
-
 def summarize_text(s: str) -> str:
     classifier: Pipeline = pipeline("summarization")
     return classifier(s)[0]["summary_text"]
@@ -365,8 +173,10 @@ def get_n_sentences(s: str, n: int) -> Generator[str, None, None]:
         yield " ".join(sentences[i : i + n])
 
 
-def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
-    """Classification using roberta pipeline classifier (i.e. pair input)"""
+def classify_summarized_text(
+    model: AutoModelForSeq2SeqLM, tokenizer: AutoTokenizer, file_path: str = None
+) -> None:
+    """Classification using classifier"""
     # Dataset source: https://huggingface.co/datasets/openwebtext
     dataset: Dataset = load_dataset("openwebtext")
 
@@ -395,7 +205,6 @@ def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
 
     for data in dataset["train"]:
         # Split into predicate + hypothesis and try every n-previous + sentence window in document
-        # Doc: https://github.com/facebookresearch/fairseq/tree/main/examples/roberta#use-roberta-for-sentence-pair-classification-tasks
         # Make sure the tokenization is within the 512-token limit
         for premise in get_n_sentences(data["text"], 20):
             # Summarize premise
@@ -407,7 +216,11 @@ def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
             except IndexError as e:
                 print(f"ERROR: {e}")
                 continue
-            tokens: torch.Tensor = roberta.encode(premise, hypothesis)
+
+            tokens: torch.Tensor = tokenizer.encode(
+                f"premise: {premise} hypothesis: {hypothesis}", return_tensors="pt"
+            ).cuda()
+
             print(
                 f"PREMISE: {premise}; HYPOTHESIS: {hypothesis}; TOKENS: {tokens}; size: {tokens.size()}"
             )
@@ -416,10 +229,17 @@ def classify_summarized_text(roberta: Pipeline, file_path: str = None) -> None:
                 # raise ValueError("Input exceeds the 512-token limit.")
                 print("Input exceeds the 512-token limit.")
             else:
+                label: str = tokenizer.decode(
+                    model.generate(tokens)[0], skip_special_tokens=True
+                )
+
+                # deprecated
+                """
                 label: EntailmentCategory = id2label[
                     roberta.predict("mnli", tokens).argmax().item()
                 ]
                 results[label].append(f'{data["text"]}')
+                """
 
                 csv_writer.writerow([label, premise, hypothesis])
 
