@@ -75,12 +75,12 @@ def compute_metrics(eval_pred):
 
 def main(is_full: bool, is_final: bool, output_path: str = None) -> None:
     """Main routine"""
-    # run_zero_shot(output_path)
     run_zero_shot_nli(output_path)
 
 
 def run_zero_shot_nli(output: str = None) -> None:
     # Run smaller T5 model for interactive mode purposes
+    """
     tokenizer = AutoTokenizer.from_pretrained("t5-small")
     nli_model = AutoModelForSeq2SeqLM.from_pretrained(
         "t5-small",
@@ -99,7 +99,6 @@ def run_zero_shot_nli(output: str = None) -> None:
         torch_dtype="auto",
         offload_state_dict=True,
     )
-    """
 
     nli_model.eval()  # disable dropout for evaluation
     assert torch.cuda.is_available()
@@ -133,8 +132,10 @@ def run_zero_shot_nli(output: str = None) -> None:
     # Experiment
     DEFUALT_OUTPUT_CSV_FILE_PATH: str = "/scratch/nn1331/entailment/data.csv"
     output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
+
     # entailment classification for summarized groups of n sentences of data
-    classify_summarized_text(nli_model, tokenizer, output_path)
+    # classify_summarized_text(nli_model, tokenizer, output_path)
+    classify_open_web_text(nli_model, tokenizer, output_path)
 
 
 def get_premise_and_hypothesis(
@@ -177,7 +178,7 @@ def get_n_sentences(s: str, n: int) -> Generator[str, None, None]:
 def classify_summarized_text(
     model: AutoModelForSeq2SeqLM, tokenizer: AutoTokenizer, file_path: str = None
 ) -> None:
-    """Classification using classifier"""
+    """Classification forcing entailment via summarization of premise as hypothesis"""
     # Dataset source: https://huggingface.co/datasets/openwebtext
     dataset: Dataset = load_dataset("openwebtext")
 
@@ -241,6 +242,57 @@ def classify_summarized_text(
                 ]
                 results[label].append(f'{data["text"]}')
                 """
+                print(f"Writing result #{i} to csv at path {file_path}")
+                csv_writer.writerow([label, premise, hypothesis])
+
+
+def classify_open_web_text(
+    model: AutoModelForSeq2SeqLM, tokenizer: AutoTokenizer, file_path: str = None
+) -> None:
+    """Classification (i.e. pair input)"""
+    # Dataset source: https://huggingface.co/datasets/openwebtext
+    dataset: Dataset = load_dataset("openwebtext")
+
+    # Get entailment examples
+    results: Dict[str, List[str]] = {
+        EntailmentCategory.CONTRADICTION.name: [],
+        EntailmentCategory.ENTAILMENT.name: [],
+        EntailmentCategory.NEUTRAL.name: [],
+    }
+
+    print(f"{len(dataset['train'])} training examples")
+
+    # NLTK package for splitting sentences
+    nltk.download("punkt")
+
+    # Write results in csv
+    csv_writer = get_csv_writer(file_path)
+
+    premise: str = ""
+    hypothesis: str = ""
+
+    for data in dataset["train"]:
+        # Split into predicate + hypothesis and try every n-previous + sentence window in document
+        # Make sure the tokenization is within the 512-token limit
+        for i, (premise, hypothesis) in enumerate(
+            get_premise_and_hypothesis(data["text"], 5)
+        ):
+            tokens: torch.Tensor = tokenizer.encode(
+                f"premise: {premise} hypothesis: {hypothesis}", return_tensors="pt"
+            ).cuda()
+
+            print(
+                f"PREMISE: {premise}; HYPOTHESIS: {hypothesis}; TOKENS: {tokens}; size: {tokens.size()}"
+            )
+
+            if tokens.size(dim=0) > 512:
+                # raise ValueError("Input exceeds the 512-token limit.")
+                print("Input exceeds the 512-token limit.")
+            else:
+                label: str = tokenizer.decode(
+                    model.generate(tokens)[0], skip_special_tokens=True
+                )
+
                 print(f"Writing result #{i} to csv at path {file_path}")
                 csv_writer.writerow([label, premise, hypothesis])
 
