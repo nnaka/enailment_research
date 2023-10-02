@@ -89,8 +89,8 @@ def run_zero_shot_nli(output: str = None) -> None:
         torch_dtype="auto",
         offload_state_dict=True,
     )
-
     """
+
     tokenizer = AutoTokenizer.from_pretrained("google/t5_xxl_true_nli_mixture")
     nli_model = AutoModelForSeq2SeqLM.from_pretrained(
         "google/t5_xxl_true_nli_mixture",
@@ -98,12 +98,13 @@ def run_zero_shot_nli(output: str = None) -> None:
         offload_folder="offload_folder",
         torch_dtype="auto",
         offload_state_dict=True,
-        )
+    )
     """
 
     nli_model.eval()  # disable dropout for evaluation
     assert torch.cuda.is_available()
-    nli_model.cuda()  # run on gpu
+    # TODO: add this back in
+    # nli_model.cuda()  # run on gpu
 
     # Test
     premise: str = "This model is a heavily optimized version of BERT."
@@ -206,7 +207,7 @@ def classify_summarized_text(
     for data in dataset["train"]:
         # Split into predicate + hypothesis and try every n-previous + sentence window in document
         # Make sure the tokenization is within the 512-token limit
-        for premise in get_n_sentences(data["text"], 20):
+        for i, premise in enumerate(get_n_sentences(data["text"], 150)):
             # Summarize premise
             try:
                 print(f"HERE: {classifier(premise)}")
@@ -240,7 +241,7 @@ def classify_summarized_text(
                 ]
                 results[label].append(f'{data["text"]}')
                 """
-
+                print(f"Writing result #{i} to csv at path {file_path}")
                 csv_writer.writerow([label, premise, hypothesis])
 
 
