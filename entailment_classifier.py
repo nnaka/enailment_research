@@ -13,6 +13,19 @@ import os
 import sys
 from typing import Dict, Generator, List, Optional, Tuple, Union
 
+# Must be called before the import of transformers etc to properly set the .cache dir
+def setup_env(path: str) -> None:
+    """Modifying where the .cache directory is getting stored"""
+    os.environ["HF_HOME"] = path
+    os.environ["TORCH_HOME"] = path
+    os.environ["TRANSFORMERS_CACHE"] = path
+    print(
+        f"Environment variables set TORCH_HOME = {os.environ['TORCH_HOME']}; HF_HOME={os.environ['HF_HOME']}; TRANSFORMERS_CACHE={os.environ['TRANSFORMERS_CACHE']}"
+    )
+
+
+setup_env("/scratch/nn1331/entailment/.cache")
+
 from datasets import Dataset, load_dataset
 import evaluate
 import nltk
@@ -80,7 +93,6 @@ def main(is_full: bool, is_final: bool, output_path: str = None) -> None:
 
 def run_zero_shot_nli(output: str = None) -> None:
     # Run smaller T5 model for interactive mode purposes
-    """
     tokenizer = AutoTokenizer.from_pretrained("t5-small")
     nli_model = AutoModelForSeq2SeqLM.from_pretrained(
         "t5-small",
@@ -99,6 +111,7 @@ def run_zero_shot_nli(output: str = None) -> None:
         torch_dtype="auto",
         offload_state_dict=True,
     )
+    """
 
     nli_model.eval()  # disable dropout for evaluation
     assert torch.cuda.is_available()
@@ -135,7 +148,17 @@ def run_zero_shot_nli(output: str = None) -> None:
 
     # entailment classification for summarized groups of n sentences of data
     # classify_summarized_text(nli_model, tokenizer, output_path)
-    classify_open_web_text(nli_model, tokenizer, output_path)
+
+    # Dataset source: https://huggingface.co/datasets/openwebtext
+    # dataset: Dataset = load_dataset("openwebtext")
+
+    # Dataset source: https://huggingface.co/datasets/monology/pile-uncopyrighted
+    # https://huggingface.co/datasets/EleutherAI/pile doesn't work due to
+    # https://huggingface.co/datasets/EleutherAI/pile/discussions/15
+    # dataset: Dataset = load_dataset("monology/pile-uncopyrighted", split="test[:50%]")
+    dataset: Dataset = load_dataset("suolyer/pile_books3", split="test")["text"]
+    #import pdb; pdb.set_trace()
+    classify_dataset_text(nli_model, tokenizer, dataset, output_path)
 
 
 def get_premise_and_hypothesis(
@@ -156,14 +179,9 @@ def get_csv_writer(file_path: str = None):
     """Either write to file path or to stdout"""
     if file_path is not None:
         csv_file = open(file_path, "w", newline="")
-        return csv.writer(csv_file)
+        return csv.writer(csv_file), csv_file
     else:
-        return csv.writer(sys.stdout)
-
-
-def summarize_text(s: str) -> str:
-    classifier: Pipeline = pipeline("summarization")
-    return classifier(s)[0]["summary_text"]
+        return csv.writer(sys.stdout), csv_file
 
 
 def get_n_sentences(s: str, n: int) -> Generator[str, None, None]:
@@ -180,7 +198,7 @@ def classify_summarized_text(
 ) -> None:
     """Classification forcing entailment via summarization of premise as hypothesis"""
     # Dataset source: https://huggingface.co/datasets/openwebtext
-    dataset: Dataset = load_dataset("openwebtext")
+    dataset: Dataset = load_dataset("openwebtext", split="train")
 
     # Get entailment examples
     results: Dict[EntailmentCategory, List[str]] = {
@@ -189,7 +207,7 @@ def classify_summarized_text(
         EntailmentCategory.NEUTRAL: [],
     }
 
-    print(f"{len(dataset['train'])} training examples")
+    print(f"{len(dataset)} training examples")
 
     # NLTK package for splitting sentences
     nltk.download("punkt")
@@ -205,7 +223,7 @@ def classify_summarized_text(
     # Summarization model
     classifier: Pipeline = pipeline("summarization")
 
-    for data in dataset["train"]:
+    for data in dataset:
         # Split into predicate + hypothesis and try every n-previous + sentence window in document
         # Make sure the tokenization is within the 512-token limit
         for i, premise in enumerate(get_n_sentences(data["text"], 150)):
@@ -246,13 +264,13 @@ def classify_summarized_text(
                 csv_writer.writerow([label, premise, hypothesis])
 
 
-def classify_open_web_text(
-    model: AutoModelForSeq2SeqLM, tokenizer: AutoTokenizer, file_path: str = None
+def classify_dataset_text(
+    model: AutoModelForSeq2SeqLM,
+    tokenizer: AutoTokenizer,
+    dataset: Dataset,
+    file_path: str = None,
 ) -> None:
     """Classification (i.e. pair input)"""
-    # Dataset source: https://huggingface.co/datasets/openwebtext
-    dataset: Dataset = load_dataset("openwebtext")
-
     # Get entailment examples
     results: Dict[str, List[str]] = {
         EntailmentCategory.CONTRADICTION.name: [],
@@ -260,22 +278,22 @@ def classify_open_web_text(
         EntailmentCategory.NEUTRAL.name: [],
     }
 
-    print(f"{len(dataset['train'])} training examples")
+    print(f"{len(dataset)} examples")
 
     # NLTK package for splitting sentences
     nltk.download("punkt")
 
     # Write results in csv
-    csv_writer = get_csv_writer(file_path)
+    csv_writer, csv_file = get_csv_writer(file_path)
 
     premise: str = ""
     hypothesis: str = ""
 
-    for data in dataset["train"]:
+    for data in dataset:
         # Split into predicate + hypothesis and try every n-previous + sentence window in document
         # Make sure the tokenization is within the 512-token limit
         for i, (premise, hypothesis) in enumerate(
-            get_premise_and_hypothesis(data["text"], 5)
+            get_premise_and_hypothesis(data, 5)
         ):
             tokens: torch.Tensor = tokenizer.encode(
                 f"premise: {premise} hypothesis: {hypothesis}", return_tensors="pt"
@@ -295,6 +313,7 @@ def classify_open_web_text(
 
                 print(f"Writing result #{i} to csv at path {file_path}")
                 csv_writer.writerow([label, premise, hypothesis])
+                csv_file.flush()
 
 
 if __name__ == "__main__":
