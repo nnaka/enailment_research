@@ -93,6 +93,7 @@ def main(is_full: bool, is_final: bool, output_path: str = None) -> None:
 
 def run_zero_shot_nli(output: str = None) -> None:
     # Run smaller T5 model for interactive mode purposes
+    """
     tokenizer = AutoTokenizer.from_pretrained("t5-small")
     nli_model = AutoModelForSeq2SeqLM.from_pretrained(
         "t5-small",
@@ -111,7 +112,6 @@ def run_zero_shot_nli(output: str = None) -> None:
         torch_dtype="auto",
         offload_state_dict=True,
     )
-    """
 
     nli_model.eval()  # disable dropout for evaluation
     assert torch.cuda.is_available()
@@ -157,7 +157,8 @@ def run_zero_shot_nli(output: str = None) -> None:
     # https://huggingface.co/datasets/EleutherAI/pile/discussions/15
     # dataset: Dataset = load_dataset("monology/pile-uncopyrighted", split="test[:50%]")
     dataset: Dataset = load_dataset("suolyer/pile_books3", split="test")["text"]
-    #import pdb; pdb.set_trace()
+    # dataset: Dataset = load_dataset("suolyer/pile_youtubesubtitles", split="test")["text"]
+    # import pdb; pdb.set_trace()
     classify_dataset_text(nli_model, tokenizer, dataset, output_path)
 
 
@@ -292,9 +293,13 @@ def classify_dataset_text(
     for data in dataset:
         # Split into predicate + hypothesis and try every n-previous + sentence window in document
         # Make sure the tokenization is within the 512-token limit
-        for i, (premise, hypothesis) in enumerate(
-            get_premise_and_hypothesis(data, 5)
-        ):
+        for i, (premise, hypothesis) in enumerate(get_premise_and_hypothesis(data, 5)):
+            # Hypotheses should be somewhat substantial
+            if len(hypothesis.split()) < 5:
+                print(
+                    f"Skipping iteration {i} for PREMISE: {premise}; HYPOTHESIS: {hypothesis}; since hypothesis is too short"
+                )
+                continue
             tokens: torch.Tensor = tokenizer.encode(
                 f"premise: {premise} hypothesis: {hypothesis}", return_tensors="pt"
             ).cuda()
