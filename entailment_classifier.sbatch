@@ -3,7 +3,7 @@
 #SBATCH --ntasks-per-node=2              # runs 2 tasks on each server
 #SBATCH --cpus-per-task=1                # uses 1 compute core per task
 #SBATCH --time=4:00:00
-#SBATCH --mem-per-cpu=80GB
+#SBATCH --mem-per-cpu=60GB
 #SBATCH --gres=gpu
 #SBATCH --job-name=python-entailment-classifier
 #SBATCH --output=python-entailment-classifier.out

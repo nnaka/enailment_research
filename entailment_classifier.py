@@ -115,7 +115,7 @@ def run_zero_shot_nli(output: str = None) -> None:
 
     nli_model.eval()  # disable dropout for evaluation
     assert torch.cuda.is_available()
-    # TODO: add this back in
+    # Move model to GPU (currently errors out due to model being both on CPU / GPU)
     # nli_model.cuda()  # run on gpu
 
     # Test
@@ -152,12 +152,18 @@ def run_zero_shot_nli(output: str = None) -> None:
     # Dataset source: https://huggingface.co/datasets/openwebtext
     # dataset: Dataset = load_dataset("openwebtext")
 
+    # TODO (nnaka): follow up tests of Pile data (https://arxiv.org/pdf/2101.00027.pdf) subsets
     # Dataset source: https://huggingface.co/datasets/monology/pile-uncopyrighted
     # https://huggingface.co/datasets/EleutherAI/pile doesn't work due to
     # https://huggingface.co/datasets/EleutherAI/pile/discussions/15
     # dataset: Dataset = load_dataset("monology/pile-uncopyrighted", split="test[:50%]")
-    dataset: Dataset = load_dataset("suolyer/pile_books3", split="test")["text"]
-    # dataset: Dataset = load_dataset("suolyer/pile_youtubesubtitles", split="test")["text"]
+    # dataset: Dataset = load_dataset("suolyer/pile_books3", split="test")["text"]
+    # dataset: Dataset = load_dataset("suolyer/pile_youtubesubtitles", split="test")[
+    #     "text"
+    # ]
+    # dataset: Dataset = load_dataset("suolyer/pile_freelaw", split="test")["text"]
+    dataset: Dataset = load_dataset("suolyer/pile_wikipedia", split="test")["text"]
+
     # import pdb; pdb.set_trace()
     classify_dataset_text(nli_model, tokenizer, dataset, output_path)
 
