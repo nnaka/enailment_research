@@ -43,6 +43,8 @@ from transformers import (
     Trainer,
 )
 
+NUM_SENTENCES_IN_PRIOR: int = 5
+
 
 class EntailmentCategory(Enum):
     CONTRADICTION = 0
@@ -143,9 +145,6 @@ def run_zero_shot_nli(output: str = None) -> None:
     # print(nli_model.predict(model_input).argmax())  # 1: entailment
 
     # Experiment
-    DEFUALT_OUTPUT_CSV_FILE_PATH: str = "/scratch/nn1331/entailment/data.csv"
-    output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
-
     # entailment classification for summarized groups of n sentences of data
     # classify_summarized_text(nli_model, tokenizer, output_path)
 
@@ -162,7 +161,16 @@ def run_zero_shot_nli(output: str = None) -> None:
     #     "text"
     # ]
     # dataset: Dataset = load_dataset("suolyer/pile_freelaw", split="test")["text"]
-    dataset: Dataset = load_dataset("suolyer/pile_wikipedia", split="test")["text"]
+    # dataset: Dataset = load_dataset("suolyer/pile_wikipedia", split="test")["text"]
+    # dataset: Dataset = load_dataset("suolyer/pile_arxiv", split="test")["text"]
+    # dataset: Dataset = load_dataset("suolyer/pile_arxiv", split="test")["text"]
+    # dataset: Dataset = load_dataset("multi_news", split="test")["document"]
+    # dataset: Dataset = load_dataset("yelp_review_full", split="test")["text"]
+    DATASET_NAME: str = "reuters21578"
+    dataset: Dataset = load_dataset(DATASET_NAME, split="test")["text"]
+
+    DEFUALT_OUTPUT_CSV_FILE_PATH: str = f"/scratch/nn1331/entailment/data-{DATASET_NAME}.csv"
+    output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
 
     # import pdb; pdb.set_trace()
     classify_dataset_text(nli_model, tokenizer, dataset, output_path)
@@ -299,7 +307,7 @@ def classify_dataset_text(
     for data in dataset:
         # Split into predicate + hypothesis and try every n-previous + sentence window in document
         # Make sure the tokenization is within the 512-token limit
-        for i, (premise, hypothesis) in enumerate(get_premise_and_hypothesis(data, 5)):
+        for i, (premise, hypothesis) in enumerate(get_premise_and_hypothesis(data, NUM_SENTENCES_IN_PRIOR)):
             # Hypotheses should be somewhat substantial
             if len(hypothesis.split()) < 5:
                 print(
