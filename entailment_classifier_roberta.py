@@ -92,23 +92,27 @@ def run_zero_shot_nli(output: str = None) -> None:
     # https://huggingface.co/datasets/EleutherAI/pile doesn't work due to
     # https://huggingface.co/datasets/EleutherAI/pile/discussions/15
     # dataset: Dataset = load_dataset("monology/pile-uncopyrighted", split="test[:50%]")
-    DATASET_NAME: str = "suolyer/pile_books3"
-    dataset: Dataset = load_dataset(DATASET_NAME, split="test")["text"]
+
+    # DATASET_NAME: str = "suolyer/pile_freelaw"
+    # DATASET_NAME: str = "suolyer/pile_arxiv"
     # DATASET_NAME: str = "suolyer/pile_youtubesubtitles"
+
+    # DATASET_NAME: str = "suolyer/pile_books3"
+    # DATASET_NAME: str = "suolyer/pile_wikipedia"
+    # DATASET_NAME: str = "yelp_review_full"
     # dataset: Dataset = load_dataset(DATASET_NAME, split="test")["text"]
-    # dataset: Dataset = load_dataset("suolyer/pile_freelaw", split="test")["text"]
-    # dataset: Dataset = load_dataset("suolyer/pile_wikipedia", split="test")["text"]
-    # dataset: Dataset = load_dataset("suolyer/pile_arxiv", split="test")["text"]
-    # dataset: Dataset = load_dataset("suolyer/pile_arxiv", split="test")["text"]
-    # dataset: Dataset = load_dataset("multi_news", split="test")["document"]
-    # dataset: Dataset = load_dataset("yelp_review_full", split="test")["text"]
+
+    # DATASET_NAME: str = "multi_news"
+    # dataset: Dataset = load_dataset(DATASET_NAME, split="test")["document"]
+
     # DATASET_NAME: str = "reuters21578"
     # dataset: Dataset = load_dataset(DATASET_NAME, "ModHayes", split="test")["text"]
-    # DATASET_NAME: str = "yahoo_answers_topics"
-    # dataset: Dataset = load_dataset(DATASET_NAME, split="test")["best_answer"]
+
+    DATASET_NAME: str = "yahoo_answers_topics"
+    dataset: Dataset = load_dataset(DATASET_NAME, split="test")["best_answer"]
 
     DEFUALT_OUTPUT_CSV_FILE_PATH: str = (
-        f"/scratch/nn1331/entailment/data-roberta-{DATASET_NAME.split('/')[1]}.csv"
+        f"/scratch/nn1331/entailment/data-roberta-{DATASET_NAME.split('/')[-1]}.csv"
     )
     output_path: str = DEFUALT_OUTPUT_CSV_FILE_PATH if output is None else output
 
