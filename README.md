@@ -64,6 +64,15 @@ singularity exec --nv --overlay /scratch/nn1331/entailment/entailment.ext3:ro \
 source /ext3/env.sh
 ```
 
+### Running data across different models
+
+We examine the entailment classification results across multiple models (i.e. see `entailment_classifier*.py`):
+```
+python3 merge_results.py /scratch/nn1331/entailment/data-wikipedia.csv /scratch/nn1331/entailment/data-roberta-pile_wikipedia.csv /scratch/nn1331/entailment/merged-pile_wikipedia.csv
+```
+This will merge the CSV results across multiple models and merge them based on the same premise + hypothesis pair.
+
+
 Additional
 [resources](https://github.com/ZhaofengWu/lm_entailment#wills-notes-for-running-on-nyu-cluster)
 to refer to
