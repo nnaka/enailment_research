@@ -18,7 +18,9 @@ def filter_csv_rows(input_path: str, output_path: str) -> None:
 
     # Apply the conditions to filter rows
     filtered_df = df[
-        ((df[last_two_columns[0]] == "1") & (df[last_two_columns[1]] == "ENTAILMENT"))
+        ((df[last_two_columns[0]] == 1) & (df[last_two_columns[1]] == "ENTAILMENT"))
+        | ((df[last_two_columns[0]] == "1") & (df[last_two_columns[1]] == "ENTAILMENT"))
+        | ((df[last_two_columns[0]] == 0) & (df[last_two_columns[1]] != "ENTAILMENT"))
         | ((df[last_two_columns[0]] == "0") & (df[last_two_columns[1]] != "ENTAILMENT"))
     ]
 
