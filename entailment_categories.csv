@@ -1,0 +1,6 @@
+Entailment Type,Multi-News,Book3,Pile: Wikipedia,Reuters-21578,Yahoo Answers Topics,Yelp Review
+Quotation,2,4,1,1,,
+Explanation,3,4,2,,,9
+Repetition,1,1,0,1,,
+Rephrase / summarization,3,0,4,,2,6
+Other,0,2,2,2,,3
