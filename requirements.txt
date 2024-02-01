@@ -1,5 +1,6 @@
 datasets
 evaluate
+matplotlib
 torch
 torchvision
 transformers[torch]
