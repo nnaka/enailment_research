@@ -20,27 +20,19 @@ def generate_stacked_bar_chart(csv_path: str, output_path: str) -> None:
 
     # Increase font of the labels
     plt.rcParams.update({"font.size": 20})
-    """
-    params = {
-        "legend.fontsize": "x-large",
-        "axes.labelsize": "x-large",
-        "axes.titlesize": "x-large",
-        "xtick.labelsize": "x-large",
-        "ytick.labelsize": "x-large",
-    }
-    # 'font.size': 22}
-    plt.rcParams.update(params)
-    """
 
     # Plot a stacked bar chart
     ax = df_transposed.plot(kind="bar", stacked=True, figsize=(10, 6))
 
     # Add labels and title
-    ax.set_xlabel("Data Source")
-    ax.set_ylabel("Counts")
-    plt.title("Comparison of Entailment Types Across Data Sources", x=0.75)  # Add padding to ensure title stays in frame
+    # ax.set_xlabel("Data Source")  # Removing to create more space
+    ax.set_xlabel(None)  # Removing to create more space
+    ax.set_ylabel("Counts", fontsize=25)
+    plt.title(
+        "Comparison of Entailment Types Across Data Sources", x=0.8
+    )  # Add padding to ensure title stays in frame
 
-    #ax.set_title("Comparison of Entailment Types Across Data Sources", pad=30)  # Add padding to ensure title stays in frame
+    # ax.set_title("Comparison of Entailment Types Across Data Sources", pad=30)  # Add padding to ensure title stays in frame
 
     # Add annotations for each height value
     for p in ax.patches:
@@ -49,7 +41,10 @@ def generate_stacked_bar_chart(csv_path: str, output_path: str) -> None:
         if height > 0:
             x, y = p.get_xy()
             ax.annotate(
-                f"{height}", (x + width / 2, y + height / 2), ha="center", va="center"
+                f"{int(height)}",
+                (x + width / 2, y + height / 2),
+                ha="center",
+                va="center",
             )
 
     # Add legend within the bounds of the chart
@@ -57,7 +52,20 @@ def generate_stacked_bar_chart(csv_path: str, output_path: str) -> None:
     # ax.legend(title="Entailment Types", loc='best')
 
     # Add legend to the right of the chart to enable increase of font
-    plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left")
+    # Reordering the labels
+    handles, labels = plt.gca().get_legend_handles_labels()
+
+    # Specify order (reverse order to match the colors in bar chart)
+    order = [i for i in range(len(labels) - 1, -1, -1)]
+
+    # Pass handle & labels lists along with order as below
+    plt.legend(
+        [handles[i] for i in order],
+        [labels[i] for i in order],
+        bbox_to_anchor=(1.04, 1),
+        loc="upper left",
+        prop={"size": 25},
+    )  # Increase font to make legend same size as chart
 
     # Rotate axis label
     plt.xticks(rotation=45, ha="right")
