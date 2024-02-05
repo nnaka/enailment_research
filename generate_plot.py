@@ -28,9 +28,9 @@ def generate_stacked_bar_chart(csv_path: str, output_path: str) -> None:
     # ax.set_xlabel("Data Source")  # Removing to create more space
     ax.set_xlabel(None)  # Removing to create more space
     ax.set_ylabel("Counts", fontsize=25)
-    plt.title(
-        "Comparison of Entailment Types Across Data Sources", x=0.8
-    )  # Add padding to ensure title stays in frame
+    # plt.title(
+    #     "Comparison of Entailment Types Across Data Sources", x=0.8
+    # )  # Add padding to ensure title stays in frame
 
     # ax.set_title("Comparison of Entailment Types Across Data Sources", pad=30)  # Add padding to ensure title stays in frame
 
